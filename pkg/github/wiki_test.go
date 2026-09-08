@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -82,6 +83,60 @@ func TestParseWikiPages(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestWikiPublishBounds(t *testing.T) {
+	_, err := parseWikiPages(map[string]any{"pages": []any{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one page")
+
+	tooMany := make([]any, wikiMaxPages+1)
+	for i := range tooMany {
+		tooMany[i] = map[string]any{"path": fmt.Sprintf("Page-%d.md", i), "content": "x"}
+	}
+	_, err = parseWikiPages(map[string]any{"pages": tooMany})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "page transaction limit")
+
+	_, err = parseWikiPages(map[string]any{"pages": []any{map[string]any{
+		"path": "Large.md", "content": strings.Repeat("x", wikiMaxPageBytes+1),
+	}}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "page limit")
+
+	totalTooLarge := make([]any, 0, 6)
+	for i := 0; i < 6; i++ {
+		totalTooLarge = append(totalTooLarge, map[string]any{
+			"path": fmt.Sprintf("Chunk-%d.md", i), "content": strings.Repeat("x", wikiMaxPageBytes),
+		})
+	}
+	_, err = parseWikiPages(map[string]any{"pages": totalTooLarge})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transaction limit")
+
+	require.NoError(t, validateWikiPagePath(strings.Repeat("a", 252)+".md"))
+	assert.Error(t, validateWikiPagePath(strings.Repeat("a", 253)+".md"))
+}
+
+func TestRequireWikiHeadRejectsConflict(t *testing.T) {
+	head := strings.Repeat("1", 40)
+	require.NoError(t, requireWikiHead(head, head))
+	err := requireWikiHead(head, strings.Repeat("2", 40))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "head moved")
+}
+
+func TestRequireWikiHeadAndBranchVerifiesRemoteState(t *testing.T) {
+	head := strings.Repeat("3", 40)
+	require.NoError(t, requireWikiHeadAndBranch("remote verification", head, "master", head, "master"))
+
+	err := requireWikiHeadAndBranch("remote verification", head, "master", strings.Repeat("4", 40), "master")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remote verification mismatch")
+
+	err = requireWikiHeadAndBranch("pre-push", head, "master", head, "other")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pre-push mismatch")
 }
 
 func TestWikiGitTokenPrefersRequestContext(t *testing.T) {

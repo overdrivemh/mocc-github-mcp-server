@@ -309,8 +309,8 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 			if err != nil {
 				return utils.NewToolResultError(err.Error()), nil, nil
 			}
-			if remoteHead != expectedHead {
-				return utils.NewToolResultError(fmt.Sprintf("Wiki head moved: expected %s, current %s", expectedHead, remoteHead)), nil, nil
+			if err := requireWikiHead(expectedHead, remoteHead); err != nil {
+				return utils.NewToolResultError(err.Error()), nil, nil
 			}
 
 			checkout, clonedHead, branch, cleanup, err := wikiClone(ctx, repository.RemoteURL, token)
@@ -318,11 +318,8 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 				return utils.NewToolResultError(err.Error()), nil, nil
 			}
 			defer cleanup()
-			if clonedHead != expectedHead {
-				return utils.NewToolResultError(fmt.Sprintf("Wiki head changed during checkout: expected %s, cloned %s", expectedHead, clonedHead)), nil, nil
-			}
-			if branch != remoteBranch {
-				return utils.NewToolResultError(fmt.Sprintf("Wiki branch changed during checkout: expected %s, cloned %s", remoteBranch, branch)), nil, nil
+			if err := requireWikiHeadAndBranch("checkout", expectedHead, remoteBranch, clonedHead, branch); err != nil {
+				return utils.NewToolResultError(err.Error()), nil, nil
 			}
 
 			pagePaths := make([]string, 0, len(pages))
@@ -369,8 +366,8 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 			if err != nil {
 				return utils.NewToolResultError(err.Error()), nil, nil
 			}
-			if prePushHead != expectedHead || prePushBranch != branch {
-				return utils.NewToolResultError(fmt.Sprintf("Wiki changed before push: expected %s on %s, current %s on %s", expectedHead, branch, prePushHead, prePushBranch)), nil, nil
+			if err := requireWikiHeadAndBranch("pre-push", expectedHead, branch, prePushHead, prePushBranch); err != nil {
+				return utils.NewToolResultError(err.Error()), nil, nil
 			}
 
 			if _, err := runWikiGit(ctx, checkout, repository.RemoteURL, token, "push", "--quiet", "origin", "HEAD:refs/heads/"+branch); err != nil {
@@ -380,8 +377,8 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 			if err != nil {
 				return utils.NewToolResultError(err.Error()), nil, nil
 			}
-			if verifiedHead != localHead || verifiedBranch != branch {
-				return utils.NewToolResultError(fmt.Sprintf("Wiki remote-head verification failed: local %s on %s, remote %s on %s", localHead, branch, verifiedHead, verifiedBranch)), nil, nil
+			if err := requireWikiHeadAndBranch("remote verification", localHead, branch, verifiedHead, verifiedBranch); err != nil {
+				return utils.NewToolResultError(err.Error()), nil, nil
 			}
 
 			result, err := wikiJSONResult(wikiPublishResult{
@@ -517,6 +514,20 @@ func validateWikiHead(head string) error {
 	}
 	if _, err := hex.DecodeString(head); err != nil {
 		return fmt.Errorf("expected_head must be an exact hexadecimal Git SHA-1")
+	}
+	return nil
+}
+
+func requireWikiHead(expectedHead, actualHead string) error {
+	if actualHead != expectedHead {
+		return fmt.Errorf("wiki head moved: expected %s, current %s", expectedHead, actualHead)
+	}
+	return nil
+}
+
+func requireWikiHeadAndBranch(stage, expectedHead, expectedBranch, actualHead, actualBranch string) error {
+	if actualHead != expectedHead || actualBranch != expectedBranch {
+		return fmt.Errorf("wiki %s mismatch: expected %s on %s, current %s on %s", stage, expectedHead, expectedBranch, actualHead, actualBranch)
 	}
 	return nil
 }
