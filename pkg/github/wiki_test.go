@@ -1,10 +1,12 @@
 package github
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
 	"testing"
 
+	ghcontext "github.com/github/github-mcp-server/pkg/context"
 	"github.com/github/github-mcp-server/pkg/translations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,13 @@ func TestParseWikiPages(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestWikiGitTokenPrefersRequestContext(t *testing.T) {
+	t.Setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "process-personal-token")
+	t.Setenv("GH_TOKEN", "process-gh-token")
+	ctx := ghcontext.WithTokenInfo(context.Background(), &ghcontext.TokenInfo{Token: "request-token"})
+	assert.Equal(t, "request-token", wikiGitToken(ctx))
 }
 
 func TestWikiGitProcessEnvDoesNotPersistRawToken(t *testing.T) {
