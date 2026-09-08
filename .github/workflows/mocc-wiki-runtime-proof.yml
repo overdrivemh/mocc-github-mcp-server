@@ -1,0 +1,28 @@
+name: MOCC disposable Wiki runtime proof
+
+on:
+  push:
+    branches: ["mocc/wiki-toolset"]
+    paths: [".github/workflows/mocc-wiki-runtime-proof.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: mocc/wiki-toolset
+      - name: Build exact Wiki MCP runtime
+        run: docker build --pull=false --build-arg VERSION=wiki-proof -t mocc-github-mcp-wiki:proof .
+      - name: Prove Git and non-root runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(docker run --rm --entrypoint /bin/sh mocc-github-mcp-wiki:proof -c 'git --version; printf "uid=%s gid=%s\n" "$(id -u)" "$(id -g)"; test "$(id -u)" = 65532; test "$(id -g)" = 65532; test -x /server/github-mcp-server')"
+          printf '%s\n' "$out"
+          grep -q '^git version ' <<<"$out"
+          grep -q '^uid=65532 gid=65532$' <<<"$out"
+          echo "WIKI_MCP_RUNTIME_PROOF=PASS HEAD=${GITHUB_SHA}"
