@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/base64"
+	"os"
 	"strings"
 	"testing"
 
@@ -106,6 +107,39 @@ func TestWikiGitProcessEnvDoesNotPersistRawToken(t *testing.T) {
 	assert.Contains(t, authValue, encoded)
 }
 
+func TestWikiGitProcessEnvStripsAmbientAuthAndConfig(t *testing.T) {
+	t.Setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "ambient-personal-token")
+	t.Setenv("GITHUB_TOKEN", "ambient-actions-token")
+	t.Setenv("GH_TOKEN", "ambient-gh-token")
+	t.Setenv("GIT_ASKPASS", "/tmp/ambient-git-askpass")
+	t.Setenv("SSH_ASKPASS", "/tmp/ambient-ssh-askpass")
+	t.Setenv("GIT_CONFIG_GLOBAL", "/tmp/ambient-gitconfig")
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "0")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "credential.helper")
+	t.Setenv("GIT_CONFIG_VALUE_0", "ambient-helper")
+
+	env, _, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", "request-token")
+	require.NoError(t, err)
+	joined := strings.Join(env, "\n")
+
+	for _, blocked := range []string{
+		"ambient-personal-token",
+		"ambient-actions-token",
+		"ambient-gh-token",
+		"/tmp/ambient-git-askpass",
+		"/tmp/ambient-ssh-askpass",
+		"/tmp/ambient-gitconfig",
+		"ambient-helper",
+	} {
+		assert.NotContains(t, joined, blocked)
+	}
+	assert.Contains(t, joined, "GIT_CONFIG_GLOBAL="+os.DevNull)
+	assert.Contains(t, joined, "GIT_CONFIG_NOSYSTEM=1")
+	assert.Contains(t, joined, "GIT_TERMINAL_PROMPT=0")
+	assert.Contains(t, joined, "GCM_INTERACTIVE=Never")
+}
+
 func TestWikiGitProcessEnvWithoutTokenDisablesAmbientCredentials(t *testing.T) {
 	env, authValue, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", "")
 	require.NoError(t, err)
@@ -114,6 +148,8 @@ func TestWikiGitProcessEnvWithoutTokenDisablesAmbientCredentials(t *testing.T) {
 	joined := strings.Join(env, "\n")
 	assert.Contains(t, joined, "GIT_TERMINAL_PROMPT=0")
 	assert.Contains(t, joined, "GCM_INTERACTIVE=Never")
+	assert.Contains(t, joined, "GIT_CONFIG_GLOBAL="+os.DevNull)
+	assert.Contains(t, joined, "GIT_CONFIG_NOSYSTEM=1")
 	assert.Contains(t, joined, "GIT_CONFIG_KEY_0=credential.helper")
 	assert.Contains(t, joined, "GIT_CONFIG_VALUE_0=")
 }
