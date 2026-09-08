@@ -598,6 +598,7 @@ The following sets of tools are available:
 | <picture><source media="(prefers-color-scheme: dark)" srcset="pkg/octicons/icons/shield-dark.png"><source media="(prefers-color-scheme: light)" srcset="pkg/octicons/icons/shield-light.png"><img src="pkg/octicons/icons/shield-light.png" width="20" height="20" alt="shield"></picture> | `security_advisories` | Security advisories related tools |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="pkg/octicons/icons/star-dark.png"><source media="(prefers-color-scheme: light)" srcset="pkg/octicons/icons/star-light.png"><img src="pkg/octicons/icons/star-light.png" width="20" height="20" alt="star"></picture> | `stargazers` | GitHub Stargazers related tools |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="pkg/octicons/icons/people-dark.png"><source media="(prefers-color-scheme: light)" srcset="pkg/octicons/icons/people-light.png"><img src="pkg/octicons/icons/people-light.png" width="20" height="20" alt="people"></picture> | `users` | GitHub User related tools |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="pkg/octicons/icons/book-dark.png"><source media="(prefers-color-scheme: light)" srcset="pkg/octicons/icons/book-light.png"><img src="pkg/octicons/icons/book-light.png" width="20" height="20" alt="book"></picture> | `wiki` | GitHub Wiki page tools |
 <!-- END AUTOMATED TOOLSETS -->
 
 ### Additional Toolsets in Remote GitHub MCP Server
@@ -1588,6 +1589,35 @@ The following sets of tools are available:
   - `perPage`: Results per page for pagination (min 1, max 100) (number, optional)
   - `query`: User search query. Examples: 'john smith', 'location:seattle', 'followers:>100'. Search is automatically scoped to type:user. (string, required)
   - `sort`: Sort users by number of followers or repositories, or when the person joined GitHub. (string, optional)
+
+</details>
+
+<details>
+
+<summary><picture><source media="(prefers-color-scheme: dark)" srcset="pkg/octicons/icons/book-dark.png"><source media="(prefers-color-scheme: light)" srcset="pkg/octicons/icons/book-light.png"><img src="pkg/octicons/icons/book-light.png" width="20" height="20" alt="book"></picture> Wiki</summary>
+
+- **wiki_get_head** - Get Wiki head
+  - **OAuth Challenge Scopes**: `repo`
+  - `owner`: Repository owner (string, required)
+  - `repo`: Repository name whose GitHub Wiki should be accessed (string, required)
+
+- **wiki_get_page** - Get Wiki page
+  - **OAuth Challenge Scopes**: `repo`
+  - `owner`: Repository owner (string, required)
+  - `path`: Wiki page filename, for example Home.md or Start-Here.md. Only root Markdown pages are supported. (string, required)
+  - `repo`: Repository name whose GitHub Wiki should be accessed (string, required)
+
+- **wiki_list_pages** - List Wiki pages
+  - **OAuth Challenge Scopes**: `repo`
+  - `owner`: Repository owner (string, required)
+  - `repo`: Repository name whose GitHub Wiki should be accessed (string, required)
+
+- **wiki_publish_pages** - Publish Wiki pages
+  - **OAuth Challenge Scopes**: `repo`
+  - `expected_head`: Exact 40-character Wiki Git commit expected before the update. The write fails closed if the Wiki has moved. (string, required)
+  - `owner`: Repository owner (string, required)
+  - `pages`: Wiki Markdown pages to create or replace atomically in one commit (object[], required)
+  - `repo`: Repository name whose GitHub Wiki should be accessed (string, required)
 
 </details>
 <!-- END AUTOMATED TOOLS -->
