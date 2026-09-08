@@ -413,7 +413,7 @@ func resolveWikiRepository(ctx context.Context, deps ToolDependencies, args map[
 		return wikiRepository{}, nil, fmt.Errorf("failed to resolve repository %s/%s: %w", owner, repo, err)
 	}
 	if !repository.GetHasWiki() {
-		return wikiRepository{}, nil, fmt.Errorf("GitHub Wiki is not enabled for %s/%s", owner, repo)
+		return wikiRepository{}, nil, fmt.Errorf("github Wiki is not enabled for %s/%s", owner, repo)
 	}
 	htmlURL := strings.TrimSuffix(repository.GetHTMLURL(), "/")
 	parsed, err := url.Parse(htmlURL)
@@ -488,25 +488,25 @@ func parseWikiPages(args map[string]any) ([]wikiPageInput, error) {
 
 func validateWikiPagePath(path string) error {
 	if path == "" {
-		return fmt.Errorf("Wiki page path must not be empty")
+		return fmt.Errorf("wiki page path must not be empty")
 	}
 	if len(path) > 255 {
-		return fmt.Errorf("Wiki page path exceeds 255 bytes")
+		return fmt.Errorf("wiki page path exceeds 255 bytes")
 	}
 	if !strings.HasSuffix(strings.ToLower(path), ".md") {
-		return fmt.Errorf("Wiki page path %q must end in .md", path)
+		return fmt.Errorf("wiki page path %q must end in .md", path)
 	}
 	if path == ".md" || strings.HasPrefix(path, ".") || strings.HasPrefix(path, "-") {
-		return fmt.Errorf("Wiki page path %q has a prohibited prefix", path)
+		return fmt.Errorf("wiki page path %q has a prohibited prefix", path)
 	}
 	if strings.ContainsAny(path, `/\\`) || strings.Contains(path, "..") {
-		return fmt.Errorf("Wiki page path %q must be a root filename without traversal", path)
+		return fmt.Errorf("wiki page path %q must be a root filename without traversal", path)
 	}
 	for _, r := range path {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' {
 			continue
 		}
-		return fmt.Errorf("Wiki page path %q contains unsupported character %q", path, r)
+		return fmt.Errorf("wiki page path %q contains unsupported character %q", path, r)
 	}
 	return nil
 }
@@ -590,7 +590,7 @@ func wikiClone(ctx context.Context, remoteURL, token string) (string, string, st
 	branch := strings.TrimSpace(branchOut)
 	if branch == "" || strings.ContainsAny(branch, " \t\r\n") {
 		cleanup()
-		return "", "", "", func() {}, fmt.Errorf("Wiki checkout returned an invalid branch")
+		return "", "", "", func() {}, fmt.Errorf("wiki checkout returned an invalid branch")
 	}
 	return checkout, head, branch, cleanup, nil
 }
@@ -602,14 +602,14 @@ func wikiLocalHead(ctx context.Context, checkout, remoteURL, token string) (stri
 	}
 	head := strings.TrimSpace(output)
 	if err := validateWikiHead(head); err != nil {
-		return "", fmt.Errorf("Wiki checkout returned an invalid head")
+		return "", fmt.Errorf("wiki checkout returned an invalid head")
 	}
 	return head, nil
 }
 
 func runWikiGit(ctx context.Context, dir, remoteURL, token string, args ...string) (string, error) {
 	if _, err := exec.LookPath("git"); err != nil {
-		return "", fmt.Errorf("GitHub Wiki tools require git in the MCP server runtime")
+		return "", fmt.Errorf("github Wiki tools require git in the MCP server runtime")
 	}
 	env, authValue, err := wikiGitProcessEnv(remoteURL, token)
 	if err != nil {
@@ -640,15 +640,20 @@ func wikiGitProcessEnv(remoteURL, token string) ([]string, string, error) {
 	}
 
 	blockedPrefixes := []string{
+		"GITHUB_PERSONAL_ACCESS_TOKEN=",
+		"GITHUB_TOKEN=",
+		"GH_TOKEN=",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
 		"GIT_TERMINAL_PROMPT=",
 		"GCM_INTERACTIVE=",
+		"GIT_CONFIG_GLOBAL=",
+		"GIT_CONFIG_NOSYSTEM=",
 		"GIT_CONFIG_COUNT=",
-		"GIT_CONFIG_KEY_0=",
-		"GIT_CONFIG_VALUE_0=",
-		"GIT_CONFIG_KEY_1=",
-		"GIT_CONFIG_VALUE_1=",
+		"GIT_CONFIG_KEY_",
+		"GIT_CONFIG_VALUE_",
 	}
-	env := make([]string, 0, len(os.Environ())+7)
+	env := make([]string, 0, len(os.Environ())+9)
 	for _, value := range os.Environ() {
 		blocked := false
 		for _, prefix := range blockedPrefixes {
@@ -661,7 +666,12 @@ func wikiGitProcessEnv(remoteURL, token string) ([]string, string, error) {
 			env = append(env, value)
 		}
 	}
-	env = append(env, "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")
+	env = append(env,
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=Never",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_NOSYSTEM=1",
+	)
 
 	if token == "" {
 		env = append(env,
