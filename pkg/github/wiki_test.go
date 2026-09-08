@@ -97,6 +97,24 @@ func TestWikiGitProcessEnvDoesNotPersistRawToken(t *testing.T) {
 	assert.Contains(t, authValue, encoded)
 }
 
+func TestWikiGitProcessEnvWithoutTokenDisablesAmbientCredentials(t *testing.T) {
+	env, authValue, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", "")
+	require.NoError(t, err)
+	assert.Empty(t, authValue)
+
+	joined := strings.Join(env, "\n")
+	assert.Contains(t, joined, "GIT_TERMINAL_PROMPT=0")
+	assert.Contains(t, joined, "GCM_INTERACTIVE=Never")
+	assert.Contains(t, joined, "GIT_CONFIG_KEY_0=credential.helper")
+	assert.Contains(t, joined, "GIT_CONFIG_VALUE_0=")
+}
+
+func TestWikiGitProcessEnvRejectsNonHTTPSRemote(t *testing.T) {
+	_, _, err := wikiGitProcessEnv("ssh://git@github.com/owner/repo.wiki.git", "token")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Wiki Git remote")
+}
+
 func TestSanitizeWikiGitOutput(t *testing.T) {
 	token := "ghp_test_secret_token"
 	authValue := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
