@@ -105,7 +105,7 @@ func TestWikiPublishBounds(t *testing.T) {
 	assert.Contains(t, err.Error(), "page limit")
 
 	totalTooLarge := make([]any, 0, 6)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		totalTooLarge = append(totalTooLarge, map[string]any{
 			"path": fmt.Sprintf("Chunk-%d.md", i), "content": strings.Repeat("x", wikiMaxPageBytes),
 		})
