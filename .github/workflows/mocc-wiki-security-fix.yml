@@ -1,0 +1,198 @@
+name: MOCC disposable Wiki security fix
+
+on:
+  push:
+    branches: ["mocc/wiki-toolset"]
+    paths: [".github/workflows/mocc-wiki-security-fix.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: mocc/wiki-toolset
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+      - name: Apply exact security corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('pkg/github/wiki.go')
+          s = p.read_text()
+
+          old = 'DestructiveHint: jsonschema.Ptr(false),'
+          assert s.count(old) == 1, s.count(old)
+          s = s.replace(old, 'DestructiveHint: jsonschema.Ptr(true),')
+
+          old = 'content, err := os.ReadFile(filepath.Join(checkout, path))'
+          assert s.count(old) == 1, s.count(old)
+          s = s.replace(old, 'content, err := readWikiPageNoFollow(checkout, path)')
+
+          old = '''\t\t\tfor _, page := range pages {\n\t\t\t\tif err := os.WriteFile(filepath.Join(checkout, page.Path), []byte(page.Content), 0o600); err != nil {\n\t\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("failed to write Wiki page %q: %v", page.Path, err)), nil, nil\n\t\t\t\t}\n\t\t\t\tpagePaths = append(pagePaths, page.Path)\n\t\t\t}\n'''
+          new = '''\t\t\tfor _, page := range pages {\n\t\t\t\tif err := writeWikiPageNoFollow(checkout, page.Path, []byte(page.Content)); err != nil {\n\t\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("failed to write Wiki page %q: %v", page.Path, err)), nil, nil\n\t\t\t\t}\n\t\t\t\tpagePaths = append(pagePaths, page.Path)\n\t\t\t}\n'''
+          assert s.count(old) == 1, s.count(old)
+          s = s.replace(old, new)
+
+          old = '''func wikiGitToken(ctx context.Context) string {\n\tif tokenInfo, ok := ghcontext.GetTokenInfo(ctx); ok && tokenInfo != nil && tokenInfo.Token != "" {\n\t\treturn tokenInfo.Token\n\t}\n\tfor _, name := range []string{"GITHUB_PERSONAL_ACCESS_TOKEN", "GH_TOKEN"} {\n\t\tif token := os.Getenv(name); token != "" {\n\t\t\treturn token\n\t\t}\n\t}\n\treturn ""\n}\n'''
+          new = '''func wikiGitToken(ctx context.Context) string {\n\tif tokenInfo, ok := ghcontext.GetTokenInfo(ctx); ok && tokenInfo != nil && tokenInfo.Token != "" {\n\t\treturn tokenInfo.Token\n\t}\n\treturn ""\n}\n'''
+          assert s.count(old) == 1, s.count(old)
+          s = s.replace(old, new)
+
+          marker = '''func validateWikiHead(head string) error {\n'''
+          assert s.count(marker) == 1
+          helpers = r'''func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
+	path := filepath.Join(checkout, pagePath)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("Wiki page %q is not a regular non-symlink file", pagePath)
+	}
+	return os.ReadFile(path)
+}
+
+func writeWikiPageNoFollow(checkout, pagePath string, content []byte) (err error) {
+	path := filepath.Join(checkout, pagePath)
+	info, statErr := os.Lstat(path)
+	exists := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+	if exists && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
+		return fmt.Errorf("Wiki page %q is not a regular non-symlink file", pagePath)
+	}
+
+	tmp, err := os.CreateTemp(checkout, ".wiki-page-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if exists {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return nil
+}
+
+'''
+          s = s.replace(marker, helpers + marker)
+          p.write_text(s)
+
+          p = Path('pkg/github/wiki_test.go')
+          s = p.read_text()
+          old = '\t"os"\n\t"strings"\n'
+          assert s.count(old) == 1
+          s = s.replace(old, '\t"os"\n\t"path/filepath"\n\t"strings"\n')
+
+          old = '''func TestWikiGitTokenPrefersRequestContext(t *testing.T) {\n\tt.Setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "process-personal-token")\n\tt.Setenv("GH_TOKEN", "process-gh-token")\n\tctx := ghcontext.WithTokenInfo(context.Background(), &ghcontext.TokenInfo{Token: "request-token"})\n\tassert.Equal(t, "request-token", wikiGitToken(ctx))\n}\n'''
+          new = old + '''\nfunc TestWikiGitTokenDoesNotFallBackToAmbientCredential(t *testing.T) {\n\tt.Setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "ambient-owner-token")\n\tt.Setenv("GH_TOKEN", "ambient-gh-token")\n\tassert.Empty(t, wikiGitToken(context.Background()))\n}\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+
+          marker = '''func TestWikiToolMetadata(t *testing.T) {\n'''
+          assert s.count(marker) == 1
+          hostile = r'''func TestWikiPageIORejectsSymlinksWithoutTouchingTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		relative bool
+	}{
+		{name: "absolute", relative: false},
+		{name: "relative", relative: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			checkout := filepath.Join(root, "checkout")
+			require.NoError(t, os.Mkdir(checkout, 0o700))
+			outside := filepath.Join(root, "outside.txt")
+			require.NoError(t, os.WriteFile(outside, []byte("outside-secret"), 0o600))
+
+			target := outside
+			if tc.relative {
+				target = filepath.Join("..", "outside.txt")
+			}
+			page := filepath.Join(checkout, "Home.md")
+			if err := os.Symlink(target, page); err != nil {
+				t.Skipf("symlink creation unavailable on this runner: %v", err)
+			}
+
+			content, err := readWikiPageNoFollow(checkout, "Home.md")
+			require.Error(t, err)
+			assert.Nil(t, content)
+			assert.Contains(t, err.Error(), "non-symlink")
+
+			err = writeWikiPageNoFollow(checkout, "Home.md", []byte("replacement"))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "non-symlink")
+
+			outsideBytes, readErr := os.ReadFile(outside)
+			require.NoError(t, readErr)
+			assert.Equal(t, "outside-secret", string(outsideBytes))
+		})
+	}
+}
+
+func TestWikiPageWriteCreatesAndReplacesRegularFile(t *testing.T) {
+	checkout := t.TempDir()
+	require.NoError(t, writeWikiPageNoFollow(checkout, "Home.md", []byte("one")))
+	got, err := readWikiPageNoFollow(checkout, "Home.md")
+	require.NoError(t, err)
+	assert.Equal(t, "one", string(got))
+
+	require.NoError(t, writeWikiPageNoFollow(checkout, "Home.md", []byte("two")))
+	got, err = readWikiPageNoFollow(checkout, "Home.md")
+	require.NoError(t, err)
+	assert.Equal(t, "two", string(got))
+}
+
+'''
+          s = s.replace(marker, hostile + marker)
+
+          old = '''\tassert.False(t, *publish.Tool.Annotations.DestructiveHint)\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, '''\tassert.True(t, *publish.Tool.Annotations.DestructiveHint)\n''')
+          p.write_text(s)
+          PY
+
+          gofmt -w pkg/github/wiki.go pkg/github/wiki_test.go
+          go test ./pkg/github -run 'Test(Wiki|ValidateWiki|ParseWiki|RequireWiki|SanitizeWiki)' -count=1
+          git diff --check
+      - name: Commit bounded correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "mocc-wiki-maintainer"
+          git config user.email "mocc-wiki-maintainer@users.noreply.github.com"
+          git add pkg/github/wiki.go pkg/github/wiki_test.go
+          git diff --cached --quiet && exit 1
+          git commit -m "fix: harden Wiki page IO and auth boundary"
+          git push origin HEAD:mocc/wiki-toolset
