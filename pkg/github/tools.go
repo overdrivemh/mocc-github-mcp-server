@@ -90,7 +90,7 @@ var (
 	}
 	ToolsetMetadataCodeSecurity = inventory.ToolsetMetadata{
 		ID:          "code_security",
-		Description: "GitHub Code security related tools, such as GitHub Code Scanning",
+		Description: "Code security related tools, such as GitHub Code Scanning",
 		Icon:        "codescan",
 	}
 	ToolsetMetadataSecretProtection = inventory.ToolsetMetadata{
