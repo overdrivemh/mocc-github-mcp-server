@@ -219,7 +219,7 @@ func WikiGetPage(t translations.TranslationHelperFunc) inventory.ServerTool {
 			}
 			defer cleanup()
 
-			content, err := os.ReadFile(filepath.Join(checkout, path))
+			content, err := readWikiPageNoFollow(checkout, path)
 			if err != nil {
 				if os.IsNotExist(err) {
 					return utils.NewToolResultError(fmt.Sprintf("Wiki page %q does not exist", path)), nil, nil
@@ -274,7 +274,7 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 			Annotations: &mcp.ToolAnnotations{
 				Title:           t("TOOL_WIKI_PUBLISH_PAGES_USER_TITLE", "Publish Wiki pages"),
 				ReadOnlyHint:    false,
-				DestructiveHint: jsonschema.Ptr(false),
+				DestructiveHint: jsonschema.Ptr(true),
 			},
 			InputSchema: &jsonschema.Schema{
 				Type:                 "object",
@@ -324,7 +324,7 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 
 			pagePaths := make([]string, 0, len(pages))
 			for _, page := range pages {
-				if err := os.WriteFile(filepath.Join(checkout, page.Path), []byte(page.Content), 0o600); err != nil {
+				if err := writeWikiPageNoFollow(checkout, page.Path, []byte(page.Content)); err != nil {
 					return utils.NewToolResultError(fmt.Sprintf("failed to write Wiki page %q: %v", page.Path, err)), nil, nil
 				}
 				pagePaths = append(pagePaths, page.Path)
@@ -508,6 +508,61 @@ func validateWikiPagePath(path string) error {
 	return nil
 }
 
+func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
+	path := filepath.Join(checkout, pagePath)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("Wiki page %q is not a regular non-symlink file", pagePath)
+	}
+	return os.ReadFile(path)
+}
+
+func writeWikiPageNoFollow(checkout, pagePath string, content []byte) (err error) {
+	path := filepath.Join(checkout, pagePath)
+	info, statErr := os.Lstat(path)
+	exists := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+	if exists && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
+		return fmt.Errorf("Wiki page %q is not a regular non-symlink file", pagePath)
+	}
+
+	tmp, err := os.CreateTemp(checkout, ".wiki-page-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if exists {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateWikiHead(head string) error {
 	if len(head) != 40 {
 		return fmt.Errorf("expected_head must be an exact 40-character Git SHA-1")
@@ -535,11 +590,6 @@ func requireWikiHeadAndBranch(stage, expectedHead, expectedBranch, actualHead, a
 func wikiGitToken(ctx context.Context) string {
 	if tokenInfo, ok := ghcontext.GetTokenInfo(ctx); ok && tokenInfo != nil && tokenInfo.Token != "" {
 		return tokenInfo.Token
-	}
-	for _, name := range []string{"GITHUB_PERSONAL_ACCESS_TOKEN", "GH_TOKEN"} {
-		if token := os.Getenv(name); token != "" {
-			return token
-		}
 	}
 	return ""
 }

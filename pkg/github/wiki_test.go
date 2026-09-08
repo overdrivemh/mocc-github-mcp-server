@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -146,6 +147,12 @@ func TestWikiGitTokenPrefersRequestContext(t *testing.T) {
 	assert.Equal(t, "request-token", wikiGitToken(ctx))
 }
 
+func TestWikiGitTokenDoesNotFallBackToAmbientCredential(t *testing.T) {
+	t.Setenv("GITHUB_PERSONAL_ACCESS_TOKEN", "ambient-owner-token")
+	t.Setenv("GH_TOKEN", "ambient-gh-token")
+	assert.Empty(t, wikiGitToken(context.Background()))
+}
+
 func TestWikiGitProcessEnvDoesNotPersistRawToken(t *testing.T) {
 	token := "ghp_test_secret_token"
 	env, authValue, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", token)
@@ -225,6 +232,59 @@ func TestSanitizeWikiGitOutput(t *testing.T) {
 	assert.Contains(t, sanitized, "[REDACTED]")
 }
 
+func TestWikiPageIORejectsSymlinksWithoutTouchingTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		relative bool
+	}{
+		{name: "absolute", relative: false},
+		{name: "relative", relative: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			checkout := filepath.Join(root, "checkout")
+			require.NoError(t, os.Mkdir(checkout, 0o700))
+			outside := filepath.Join(root, "outside.txt")
+			require.NoError(t, os.WriteFile(outside, []byte("outside-secret"), 0o600))
+
+			target := outside
+			if tc.relative {
+				target = filepath.Join("..", "outside.txt")
+			}
+			page := filepath.Join(checkout, "Home.md")
+			if err := os.Symlink(target, page); err != nil {
+				t.Skipf("symlink creation unavailable on this runner: %v", err)
+			}
+
+			content, err := readWikiPageNoFollow(checkout, "Home.md")
+			require.Error(t, err)
+			assert.Nil(t, content)
+			assert.Contains(t, err.Error(), "non-symlink")
+
+			err = writeWikiPageNoFollow(checkout, "Home.md", []byte("replacement"))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "non-symlink")
+
+			outsideBytes, readErr := os.ReadFile(outside)
+			require.NoError(t, readErr)
+			assert.Equal(t, "outside-secret", string(outsideBytes))
+		})
+	}
+}
+
+func TestWikiPageWriteCreatesAndReplacesRegularFile(t *testing.T) {
+	checkout := t.TempDir()
+	require.NoError(t, writeWikiPageNoFollow(checkout, "Home.md", []byte("one")))
+	got, err := readWikiPageNoFollow(checkout, "Home.md")
+	require.NoError(t, err)
+	assert.Equal(t, "one", string(got))
+
+	require.NoError(t, writeWikiPageNoFollow(checkout, "Home.md", []byte("two")))
+	got, err = readWikiPageNoFollow(checkout, "Home.md")
+	require.NoError(t, err)
+	assert.Equal(t, "two", string(got))
+}
+
 func TestWikiToolMetadata(t *testing.T) {
 	getHead := WikiGetHead(translations.NullTranslationHelper)
 	assert.Equal(t, "wiki_get_head", getHead.Tool.Name)
@@ -236,6 +296,6 @@ func TestWikiToolMetadata(t *testing.T) {
 	require.NotNil(t, publish.Tool.Annotations)
 	assert.False(t, publish.Tool.Annotations.ReadOnlyHint)
 	require.NotNil(t, publish.Tool.Annotations.DestructiveHint)
-	assert.False(t, *publish.Tool.Annotations.DestructiveHint)
+	assert.True(t, *publish.Tool.Annotations.DestructiveHint)
 	assert.Equal(t, []string{"repo"}, publish.ScopeAccess.Scopes)
 }
