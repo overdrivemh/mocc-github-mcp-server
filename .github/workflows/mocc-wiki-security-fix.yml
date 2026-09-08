@@ -3,7 +3,9 @@ name: MOCC disposable Wiki security fix
 on:
   push:
     branches: ["mocc/wiki-toolset"]
-    paths: [".github/workflows/mocc-wiki-security-fix.yml"]
+    paths:
+      - ".github/workflows/mocc-wiki-security-fix.yml"
+      - ".github/mocc-wiki-security-fix.py"
 
 permissions:
   contents: write
@@ -23,9 +25,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' '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' | base64 -d | gzip -d > /tmp/mocc-wiki-security-fix.py
-          python3 -m py_compile /tmp/mocc-wiki-security-fix.py
-          python3 /tmp/mocc-wiki-security-fix.py
+          python3 -m py_compile .github/mocc-wiki-security-fix.py
+          python3 .github/mocc-wiki-security-fix.py
           gofmt -w pkg/github/wiki.go pkg/github/wiki_test.go
           go test ./pkg/github -run 'Test(Wiki|ValidateWiki|ParseWiki|RequireWiki|SanitizeWiki)' -count=1
           git diff --check
