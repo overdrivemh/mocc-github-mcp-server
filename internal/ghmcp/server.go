@@ -14,6 +14,7 @@ import (
 
 	"github.com/github/github-mcp-server/internal/oauth"
 	"github.com/github/github-mcp-server/internal/requeststate"
+	ghcontext "github.com/github/github-mcp-server/pkg/context"
 	"github.com/github/github-mcp-server/pkg/errors"
 	"github.com/github/github-mcp-server/pkg/github"
 	"github.com/github/github-mcp-server/pkg/http/transport"
@@ -367,6 +368,17 @@ func RunStdioServer(cfg StdioServerConfig) error {
 		toolHandlerMiddleware = append(toolHandlerMiddleware, createOAuthToolMiddleware(cfg.OAuthManager, logger))
 	}
 
+	// Project the same stdio authentication principal used by the GitHub API
+	// clients into tool request context. Git-backed tools can then use that
+	// request-scoped credential without falling back to ambient process secrets.
+	contextTokenProvider := tokenProvider
+	if cfg.Token != "" {
+		contextTokenProvider = func() string { return cfg.Token }
+	}
+	if contextTokenProvider != nil {
+		toolHandlerMiddleware = append(toolHandlerMiddleware, createTokenContextMiddleware(contextTokenProvider))
+	}
+
 	ghServer, err := NewStdioMCPServer(ctx, github.MCPServerConfig{
 		Version:               cfg.Version,
 		Host:                  cfg.Host,
@@ -434,6 +446,18 @@ func RunStdioServer(cfg StdioServerConfig) error {
 // createFeatureChecker returns a FeatureFlagChecker that resolves features
 // using the centralized ResolveFeatureFlags function. For the local server,
 // features are resolved once at startup from --features CLI flag and insiders mode.
+func createTokenContextMiddleware(tokenProvider func() string) inventory.ToolHandlerMiddleware {
+	return func(next mcp.ToolHandler) mcp.ToolHandler {
+		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			token := tokenProvider()
+			if token != "" {
+				ctx = ghcontext.WithTokenInfo(ctx, &ghcontext.TokenInfo{Token: token})
+			}
+			return next(ctx, req)
+		}
+	}
+}
+
 func createFeatureChecker(enabledFeatures []string, insidersMode bool) inventory.FeatureFlagChecker {
 	featureSet := github.ResolveFeatureFlags(enabledFeatures, insidersMode)
 	return func(_ context.Context, flagName string) (bool, error) {
