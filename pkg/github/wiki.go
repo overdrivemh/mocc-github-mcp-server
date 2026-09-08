@@ -327,7 +327,7 @@ func WikiPublishPages(t translations.TranslationHelperFunc) inventory.ServerTool
 
 			pagePaths := make([]string, 0, len(pages))
 			for _, page := range pages {
-				if err := os.WriteFile(filepath.Join(checkout, page.Path), []byte(page.Content), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(checkout, page.Path), []byte(page.Content), 0o600); err != nil {
 					return utils.NewToolResultError(fmt.Sprintf("failed to write Wiki page %q: %v", page.Path, err)), nil, nil
 				}
 				pagePaths = append(pagePaths, page.Path)
@@ -421,7 +421,7 @@ func resolveWikiRepository(ctx context.Context, deps ToolDependencies, args map[
 		return wikiRepository{}, nil, fmt.Errorf("repository %s/%s returned an invalid HTML URL", owner, repo)
 	}
 	if parsed.Scheme != "https" {
-		return wikiRepository{}, nil, fmt.Errorf("Wiki Git transport requires HTTPS repository URLs")
+		return wikiRepository{}, nil, fmt.Errorf("wiki Git transport requires HTTPS repository URLs")
 	}
 	return wikiRepository{Owner: owner, Repo: repo, RemoteURL: htmlURL + ".wiki.git"}, client, nil
 }
@@ -475,11 +475,11 @@ func parseWikiPages(args map[string]any) ([]wikiPageInput, error) {
 		}
 		seen[path] = struct{}{}
 		if len(content) > wikiMaxPageBytes {
-			return nil, fmt.Errorf("Wiki page %q exceeds the %d-byte page limit", path, wikiMaxPageBytes)
+			return nil, fmt.Errorf("wiki page %q exceeds the %d-byte page limit", path, wikiMaxPageBytes)
 		}
 		totalBytes += len(content)
 		if totalBytes > wikiMaxTotalBytes {
-			return nil, fmt.Errorf("Wiki publication exceeds the %d-byte transaction limit", wikiMaxTotalBytes)
+			return nil, fmt.Errorf("wiki publication exceeds the %d-byte transaction limit", wikiMaxTotalBytes)
 		}
 		pages = append(pages, wikiPageInput{Path: path, Content: content})
 	}
@@ -543,7 +543,7 @@ func wikiRemoteHead(ctx context.Context, remoteURL, token string) (string, strin
 
 func parseWikiRemoteHead(output string) (string, string, error) {
 	var head, branch string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
