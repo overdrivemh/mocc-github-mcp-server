@@ -90,7 +90,7 @@ var (
 	}
 	ToolsetMetadataCodeSecurity = inventory.ToolsetMetadata{
 		ID:          "code_security",
-		Description: "Code security related tools, such as GitHub Code Scanning",
+		Description: "GitHub Code security related tools, such as GitHub Code Scanning",
 		Icon:        "codescan",
 	}
 	ToolsetMetadataSecretProtection = inventory.ToolsetMetadata{
@@ -250,6 +250,12 @@ func AllTools(t translations.TranslationHelperFunc, opts ...ToolOption) []invent
 
 		// Git tools
 		GetRepositoryTree(t),
+
+		// Wiki tools
+		WikiGetHead(t),
+		WikiListPages(t),
+		WikiGetPage(t),
+		WikiPublishPages(t),
 
 		// Issue tools
 		IssueRead(t),
