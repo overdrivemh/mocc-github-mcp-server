@@ -1,0 +1,89 @@
+name: MOCC disposable Wiki contract-test patch
+
+on:
+  push:
+    branches:
+      - mocc/wiki-toolset
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: mocc/wiki-toolset
+          fetch-depth: 0
+
+      - name: Apply exact bounded contract-test patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          wiki = Path('pkg/github/wiki.go')
+          tests = Path('pkg/github/wiki_test.go')
+          source = wiki.read_text()
+          test_source = tests.read_text()
+
+          if 'func requireWikiHead(expectedHead, actualHead string) error {' not in source:
+              replacements = [
+                  (
+                      '''\t\t\tif remoteHead != expectedHead {\n\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("Wiki head moved: expected %s, current %s", expectedHead, remoteHead)), nil, nil\n\t\t\t}\n''',
+                      '''\t\t\tif err := requireWikiHead(expectedHead, remoteHead); err != nil {\n\t\t\t\treturn utils.NewToolResultError(err.Error()), nil, nil\n\t\t\t}\n'''
+                  ),
+                  (
+                      '''\t\t\tif clonedHead != expectedHead {\n\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("Wiki head changed during checkout: expected %s, cloned %s", expectedHead, clonedHead)), nil, nil\n\t\t\t}\n\t\t\tif branch != remoteBranch {\n\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("Wiki branch changed during checkout: expected %s, cloned %s", remoteBranch, branch)), nil, nil\n\t\t\t}\n''',
+                      '''\t\t\tif err := requireWikiHeadAndBranch("checkout", expectedHead, remoteBranch, clonedHead, branch); err != nil {\n\t\t\t\treturn utils.NewToolResultError(err.Error()), nil, nil\n\t\t\t}\n'''
+                  ),
+                  (
+                      '''\t\t\tif prePushHead != expectedHead || prePushBranch != branch {\n\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("Wiki changed before push: expected %s on %s, current %s on %s", expectedHead, branch, prePushHead, prePushBranch)), nil, nil\n\t\t\t}\n''',
+                      '''\t\t\tif err := requireWikiHeadAndBranch("pre-push", expectedHead, branch, prePushHead, prePushBranch); err != nil {\n\t\t\t\treturn utils.NewToolResultError(err.Error()), nil, nil\n\t\t\t}\n'''
+                  ),
+                  (
+                      '''\t\t\tif verifiedHead != localHead || verifiedBranch != branch {\n\t\t\t\treturn utils.NewToolResultError(fmt.Sprintf("Wiki remote-head verification failed: local %s on %s, remote %s on %s", localHead, branch, verifiedHead, verifiedBranch)), nil, nil\n\t\t\t}\n''',
+                      '''\t\t\tif err := requireWikiHeadAndBranch("remote verification", localHead, branch, verifiedHead, verifiedBranch); err != nil {\n\t\t\t\treturn utils.NewToolResultError(err.Error()), nil, nil\n\t\t\t}\n'''
+                  ),
+              ]
+              for old, new in replacements:
+                  count = source.count(old)
+                  if count != 1:
+                      raise SystemExit(f'expected exactly one source match, found {count}: {old[:80]!r}')
+                  source = source.replace(old, new, 1)
+
+              marker = 'func wikiGitToken(ctx context.Context) string {'
+              helper = '''func requireWikiHead(expectedHead, actualHead string) error {\n\tif actualHead != expectedHead {\n\t\treturn fmt.Errorf("wiki head moved: expected %s, current %s", expectedHead, actualHead)\n\t}\n\treturn nil\n}\n\nfunc requireWikiHeadAndBranch(stage, expectedHead, expectedBranch, actualHead, actualBranch string) error {\n\tif actualHead != expectedHead || actualBranch != expectedBranch {\n\t\treturn fmt.Errorf("wiki %s mismatch: expected %s on %s, current %s on %s", stage, expectedHead, expectedBranch, actualHead, actualBranch)\n\t}\n\treturn nil\n}\n\n'''
+              if source.count(marker) != 1:
+                  raise SystemExit('wikiGitToken marker missing or duplicated')
+              source = source.replace(marker, helper + marker, 1)
+              wiki.write_text(source)
+
+          if 'func TestWikiPublishBounds' not in test_source:
+              marker = 'func TestWikiGitTokenPrefersRequestContext(t *testing.T) {'
+              addition = '''func TestWikiPublishBounds(t *testing.T) {\n\t_, err := parseWikiPages(map[string]any{"pages": []any{}})\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "at least one page")\n\n\ttooMany := make([]any, wikiMaxPages+1)\n\tfor i := range tooMany {\n\t\ttooMany[i] = map[string]any{"path": fmt.Sprintf("Page-%d.md", i), "content": "x"}\n\t}\n\t_, err = parseWikiPages(map[string]any{"pages": tooMany})\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "page transaction limit")\n\n\t_, err = parseWikiPages(map[string]any{"pages": []any{map[string]any{\n\t\t"path": "Large.md", "content": strings.Repeat("x", wikiMaxPageBytes+1),\n\t}}})\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "page limit")\n\n\ttotalTooLarge := make([]any, 0, 6)\n\tfor i := 0; i < 6; i++ {\n\t\ttotalTooLarge = append(totalTooLarge, map[string]any{\n\t\t\t"path": fmt.Sprintf("Chunk-%d.md", i), "content": strings.Repeat("x", wikiMaxPageBytes),\n\t\t})\n\t}\n\t_, err = parseWikiPages(map[string]any{"pages": totalTooLarge})\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "transaction limit")\n\n\trequire.NoError(t, validateWikiPagePath(strings.Repeat("a", 252)+".md"))\n\tassert.Error(t, validateWikiPagePath(strings.Repeat("a", 253)+".md"))\n}\n\nfunc TestRequireWikiHeadRejectsConflict(t *testing.T) {\n\thead := strings.Repeat("1", 40)\n\trequire.NoError(t, requireWikiHead(head, head))\n\terr := requireWikiHead(head, strings.Repeat("2", 40))\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "head moved")\n}\n\nfunc TestRequireWikiHeadAndBranchVerifiesRemoteState(t *testing.T) {\n\thead := strings.Repeat("3", 40)\n\trequire.NoError(t, requireWikiHeadAndBranch("remote verification", head, "master", head, "master"))\n\n\terr := requireWikiHeadAndBranch("remote verification", head, "master", strings.Repeat("4", 40), "master")\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "remote verification mismatch")\n\n\terr = requireWikiHeadAndBranch("pre-push", head, "master", head, "other")\n\trequire.Error(t, err)\n\tassert.Contains(t, err.Error(), "pre-push mismatch")\n}\n\n'''
+              if test_source.count(marker) != 1:
+                  raise SystemExit('test insertion marker missing or duplicated')
+              test_source = test_source.replace(marker, addition + marker, 1)
+              if '"fmt"' not in test_source:
+                  test_source = test_source.replace('"encoding/base64"\n', '"encoding/base64"\n\t"fmt"\n', 1)
+              tests.write_text(test_source)
+          PY
+
+      - name: Format and commit exact source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w pkg/github/wiki.go pkg/github/wiki_test.go
+          if git diff --quiet -- pkg/github/wiki.go pkg/github/wiki_test.go; then
+            echo "PATCH_ALREADY_APPLIED=true"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pkg/github/wiki.go pkg/github/wiki_test.go
+          git commit -m "test: cover Wiki conflict and publication bounds"
+          git push origin HEAD:mocc/wiki-toolset
