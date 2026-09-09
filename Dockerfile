@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Wiki support intentionally uses the native Git transport. Keep this fork-only
 # runtime delta small: the server remains a static Go binary and the final image
 # adds only Git and CA roots required to access repository .wiki.git remotes.
-FROM alpine:3.23
+FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 RUN apk add --no-cache git ca-certificates && \
     addgroup -g 65532 -S nonroot && \
     adduser -u 65532 -S nonroot -G nonroot
