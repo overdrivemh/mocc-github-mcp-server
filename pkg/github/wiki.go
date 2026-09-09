@@ -515,7 +515,7 @@ func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
 		return nil, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("Wiki page %q is not a regular non-symlink file", pagePath)
+		return nil, fmt.Errorf("wiki page %q is not a regular non-symlink file", pagePath)
 	}
 	return os.ReadFile(path)
 }
@@ -528,7 +528,7 @@ func writeWikiPageNoFollow(checkout, pagePath string, content []byte) (err error
 		return statErr
 	}
 	if exists && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
-		return fmt.Errorf("Wiki page %q is not a regular non-symlink file", pagePath)
+		return fmt.Errorf("wiki page %q is not a regular non-symlink file", pagePath)
 	}
 
 	tmp, err := os.CreateTemp(checkout, ".wiki-page-*")
