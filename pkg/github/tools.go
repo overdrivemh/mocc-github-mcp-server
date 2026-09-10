@@ -251,6 +251,12 @@ func AllTools(t translations.TranslationHelperFunc, opts ...ToolOption) []invent
 		// Git tools
 		GetRepositoryTree(t),
 
+		// Wiki tools
+		WikiGetHead(t),
+		WikiListPages(t),
+		WikiGetPage(t),
+		WikiPublishPages(t),
+
 		// Issue tools
 		IssueRead(t),
 		SearchIssues(t, opts...),

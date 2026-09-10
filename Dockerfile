@@ -34,8 +34,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=$(git rev-parse HEAD) -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/github/github-mcp-server/internal/buildinfo.OAuthClientID=${OAUTH_CLIENT_ID} -X github.com/github/github-mcp-server/internal/buildinfo.OAuthClientSecret=${OAUTH_CLIENT_SECRET}" \
     -o /bin/github-mcp-server ./cmd/github-mcp-server
 
-# Make a stage to run the app
-FROM gcr.io/distroless/base-debian12@sha256:fabbf1c0c357a3d42550111351daed089b20a2c954df13ee2fcff60602515e84
+# Wiki support intentionally uses the native Git transport. Keep this fork-only
+# runtime delta small: the server remains a static Go binary and the final image
+# adds only Git and CA roots required to access repository .wiki.git remotes.
+FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+RUN apk add --no-cache git ca-certificates && \
+    addgroup -g 65532 -S nonroot && \
+    adduser -u 65532 -S nonroot -G nonroot
 
 # Add required MCP server annotation
 LABEL io.modelcontextprotocol.server.name="io.github.github/github-mcp-server"
@@ -44,6 +49,8 @@ LABEL io.modelcontextprotocol.server.name="io.github.github/github-mcp-server"
 WORKDIR /server
 # Copy the binary from the build stage
 COPY --from=build /bin/github-mcp-server .
+# Run with the same non-root UID used by the upstream distroless runtime.
+USER 65532:65532
 # Expose the default port
 EXPOSE 8082
 # Set the entrypoint to the server binary
