@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   release:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
 
     steps:

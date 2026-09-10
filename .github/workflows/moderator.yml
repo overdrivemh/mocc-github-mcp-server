@@ -9,6 +9,7 @@ on:
 
 jobs:
   spam-detection:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
     permissions:
       issues: write

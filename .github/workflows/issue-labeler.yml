@@ -6,6 +6,7 @@ on:
       - opened
 jobs:
   label_issues:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
     permissions:
       issues: write
