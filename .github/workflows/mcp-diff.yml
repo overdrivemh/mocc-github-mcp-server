@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   mcp-diff:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
 
     steps:
@@ -81,6 +82,7 @@ jobs:
           echo "- Capability changes (intentional improvements)" >> $GITHUB_STEP_SUMMARY
 
   mcp-diff-http:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
 
     steps:
