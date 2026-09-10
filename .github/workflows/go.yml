@@ -6,6 +6,7 @@ permissions:
 
 jobs:
   build:
+    if: github.repository == 'github/github-mcp-server'
     strategy:
       fail-fast: false
       matrix:
