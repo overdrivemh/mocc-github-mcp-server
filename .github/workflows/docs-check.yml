@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   docs-check:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
