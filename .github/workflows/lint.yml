@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   golangci:
+    if: github.repository == 'github/github-mcp-server'
     name: lint
     runs-on: ubuntu-latest
     steps:

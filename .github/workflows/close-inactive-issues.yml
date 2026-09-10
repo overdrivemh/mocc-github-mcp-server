@@ -5,6 +5,7 @@ on:
 
 jobs:
   close-issues:
+    if: github.repository == 'github/github-mcp-server'
     runs-on: ubuntu-latest
     env:
       PR_DAYS_BEFORE_STALE: 30
