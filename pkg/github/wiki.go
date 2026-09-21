@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -156,17 +157,10 @@ func WikiListPages(t translations.TranslationHelperFunc) inventory.ServerTool {
 			}
 			defer cleanup()
 
-			entries, err := os.ReadDir(checkout)
+			pages, err := listWikiPagesBounded(checkout)
 			if err != nil {
-				return utils.NewToolResultError(fmt.Sprintf("failed to read Wiki checkout: %v", err)), nil, nil
+				return utils.NewToolResultError(err.Error()), nil, nil
 			}
-			pages := make([]string, 0, len(entries))
-			for _, entry := range entries {
-				if entry.Type().IsRegular() && strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-					pages = append(pages, entry.Name())
-				}
-			}
-			sort.Strings(pages)
 
 			result, err := wikiJSONResult(wikiPagesResult{Pages: pages, Head: head, Branch: branch})
 			if err != nil {
@@ -226,10 +220,6 @@ func WikiGetPage(t translations.TranslationHelperFunc) inventory.ServerTool {
 				}
 				return utils.NewToolResultError(fmt.Sprintf("failed to read Wiki page %q: %v", path, err)), nil, nil
 			}
-			if len(content) > wikiMaxPageBytes {
-				return utils.NewToolResultError(fmt.Sprintf("Wiki page %q exceeds the %d-byte tool limit", path, wikiMaxPageBytes)), nil, nil
-			}
-
 			result, err := wikiJSONResult(wikiPageResult{Path: path, Content: string(content), Head: head, Branch: branch})
 			if err != nil {
 				return nil, nil, err
@@ -508,6 +498,35 @@ func validateWikiPagePath(path string) error {
 	return nil
 }
 
+func listWikiPagesBounded(checkout string) ([]string, error) {
+	directory, err := os.Open(checkout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open Wiki checkout: %w", err)
+	}
+	defer directory.Close()
+
+	pages := make([]string, 0, wikiMaxPages)
+	for {
+		entries, readErr := directory.ReadDir(64)
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
+				pages = append(pages, entry.Name())
+				if len(pages) > wikiMaxPages {
+					return nil, fmt.Errorf("Wiki contains more than %d root Markdown pages", wikiMaxPages)
+				}
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read Wiki checkout: %w", readErr)
+		}
+	}
+	sort.Strings(pages)
+	return pages, nil
+}
+
 func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
 	path := filepath.Join(checkout, pagePath)
 	info, err := os.Lstat(path)
@@ -517,7 +536,35 @@ func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("wiki page %q is not a regular non-symlink file", pagePath)
 	}
-	return os.ReadFile(path)
+	if info.Size() > int64(wikiMaxPageBytes) {
+		return nil, fmt.Errorf("Wiki page %q exceeds the %d-byte tool limit", pagePath, wikiMaxPageBytes)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("wiki page %q is not a regular non-symlink file", pagePath)
+	}
+	if openedInfo.Size() > int64(wikiMaxPageBytes) {
+		return nil, fmt.Errorf("Wiki page %q exceeds the %d-byte tool limit", pagePath, wikiMaxPageBytes)
+	}
+
+	content, err := io.ReadAll(io.LimitReader(file, int64(wikiMaxPageBytes)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > wikiMaxPageBytes {
+		return nil, fmt.Errorf("Wiki page %q exceeds the %d-byte tool limit", pagePath, wikiMaxPageBytes)
+	}
+	return content, nil
 }
 
 func writeWikiPageNoFollow(checkout, pagePath string, content []byte) (err error) {
