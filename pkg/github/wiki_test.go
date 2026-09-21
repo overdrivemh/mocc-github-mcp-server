@@ -119,6 +119,42 @@ func TestWikiPublishBounds(t *testing.T) {
 	assert.Error(t, validateWikiPagePath(strings.Repeat("a", 253)+".md"))
 }
 
+func TestListWikiPagesBoundedRejectsResultAmplification(t *testing.T) {
+	checkout := t.TempDir()
+	for i := range wikiMaxPages {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(checkout, fmt.Sprintf("Page-%02d.md", i)),
+			[]byte("bounded"),
+			0o600,
+		))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(checkout, "Notes.txt"), []byte("ignored"), 0o600))
+
+	pages, err := listWikiPagesBounded(checkout)
+	require.NoError(t, err)
+	require.Len(t, pages, wikiMaxPages)
+
+	require.NoError(t, os.WriteFile(filepath.Join(checkout, "Overflow.md"), []byte("overflow"), 0o600))
+	pages, err = listWikiPagesBounded(checkout)
+	require.Error(t, err)
+	assert.Nil(t, pages)
+	assert.Contains(t, err.Error(), "more than 50 root Markdown pages")
+}
+
+func TestReadWikiPageRejectsOversizeBeforeReturningContent(t *testing.T) {
+	checkout := t.TempDir()
+	path := filepath.Join(checkout, "Large.md")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(int64(wikiMaxPageBytes)+1))
+	require.NoError(t, file.Close())
+
+	content, err := readWikiPageNoFollow(checkout, "Large.md")
+	require.Error(t, err)
+	assert.Nil(t, content)
+	assert.Contains(t, err.Error(), "exceeds the 1048576-byte tool limit")
+}
+
 func TestRequireWikiHeadRejectsConflict(t *testing.T) {
 	head := strings.Repeat("1", 40)
 	require.NoError(t, requireWikiHead(head, head))
