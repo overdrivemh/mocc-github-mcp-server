@@ -528,6 +528,10 @@ func listWikiPagesBounded(checkout string) ([]string, error) {
 }
 
 func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
+	return readWikiPageNoFollowWithOpen(checkout, pagePath, os.Open)
+}
+
+func readWikiPageNoFollowWithOpen(checkout, pagePath string, openFile func(string) (*os.File, error)) ([]byte, error) {
 	path := filepath.Join(checkout, pagePath)
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -540,7 +544,7 @@ func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
 		return nil, fmt.Errorf("Wiki page %q exceeds the %d-byte tool limit", pagePath, wikiMaxPageBytes)
 	}
 
-	file, err := os.Open(path)
+	file, err := openFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -553,8 +557,19 @@ func readWikiPageNoFollow(checkout, pagePath string) ([]byte, error) {
 	if !openedInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("wiki page %q is not a regular non-symlink file", pagePath)
 	}
+	if !os.SameFile(info, openedInfo) {
+		return nil, fmt.Errorf("wiki page %q changed identity before open", pagePath)
+	}
 	if openedInfo.Size() > int64(wikiMaxPageBytes) {
 		return nil, fmt.Errorf("Wiki page %q exceeds the %d-byte tool limit", pagePath, wikiMaxPageBytes)
+	}
+
+	currentInfo, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if currentInfo.Mode()&os.ModeSymlink != 0 || !currentInfo.Mode().IsRegular() || !os.SameFile(openedInfo, currentInfo) {
+		return nil, fmt.Errorf("wiki page %q changed identity during open", pagePath)
 	}
 
 	content, err := io.ReadAll(io.LimitReader(file, int64(wikiMaxPageBytes)+1))

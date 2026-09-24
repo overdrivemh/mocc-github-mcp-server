@@ -155,6 +155,38 @@ func TestReadWikiPageRejectsOversizeBeforeReturningContent(t *testing.T) {
 	assert.Contains(t, err.Error(), "exceeds the 1048576-byte tool limit")
 }
 
+
+func TestReadWikiPageRejectsPathIdentitySwapBetweenAdmissionAndOpen(t *testing.T) {
+	for _, replacementKind := range []string{"regular", "symlink"} {
+		t.Run(replacementKind, func(t *testing.T) {
+			root := t.TempDir()
+			checkout := filepath.Join(root, "checkout")
+			require.NoError(t, os.Mkdir(checkout, 0o700))
+
+			page := filepath.Join(checkout, "Home.md")
+			admitted := filepath.Join(checkout, "Admitted.md")
+			outside := filepath.Join(root, "outside.md")
+			require.NoError(t, os.WriteFile(page, []byte("admitted-safe"), 0o600))
+			require.NoError(t, os.WriteFile(outside, []byte("replacement-secret"), 0o600))
+
+			content, err := readWikiPageNoFollowWithOpen(checkout, "Home.md", func(path string) (*os.File, error) {
+				require.NoError(t, os.Rename(page, admitted))
+				if replacementKind == "symlink" {
+					if symlinkErr := os.Symlink(outside, page); symlinkErr != nil {
+						t.Skipf("symlink creation unavailable on this runner: %v", symlinkErr)
+					}
+				} else {
+					require.NoError(t, os.WriteFile(page, []byte("replacement-secret"), 0o600))
+				}
+				return os.Open(path)
+			})
+			require.Error(t, err)
+			assert.Nil(t, content)
+			assert.Contains(t, err.Error(), "changed identity")
+		})
+	}
+}
+
 func TestRequireWikiHeadRejectsConflict(t *testing.T) {
 	head := strings.Repeat("1", 40)
 	require.NoError(t, requireWikiHead(head, head))
