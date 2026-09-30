@@ -43,6 +43,20 @@ func TestGitHubAppFlagsAreStdioOnly(t *testing.T) {
 	assert.Nil(t, httpCmd.Flags().Lookup("app-id"))
 }
 
+
+func TestHTTPTransportFlagsSecureDefaults(t *testing.T) {
+	listen := httpCmd.Flags().Lookup("listen-host")
+	require.NotNil(t, listen)
+	assert.Equal(t, "127.0.0.1", listen.DefValue)
+
+	cert := httpCmd.Flags().Lookup("tls-cert-file")
+	key := httpCmd.Flags().Lookup("tls-key-file")
+	require.NotNil(t, cert)
+	require.NotNil(t, key)
+	assert.Empty(t, cert.DefValue)
+	assert.Empty(t, key.DefValue)
+}
+
 func TestAuthorizationServerConfigurationIsHTTPOnly(t *testing.T) {
 	flag := httpCmd.Flags().Lookup("authorization-server")
 	require.NotNil(t, flag)

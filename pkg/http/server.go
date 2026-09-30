@@ -42,8 +42,13 @@ type ServerConfig struct {
 	Port int
 
 	// ListenHost is the host the HTTP server binds to (e.g. "127.0.0.1").
-	// When empty, the server binds to all interfaces. Combined with Port.
+	// Empty is treated as 127.0.0.1. Cleartext HTTP is loopback-only.
 	ListenHost string
+
+	// TLSCertFile and TLSKeyFile enable native HTTPS. Both are required
+	// together for any non-loopback listener.
+	TLSCertFile string
+	TLSKeyFile  string
 
 	// BaseURL is the publicly accessible URL of this server for OAuth resource metadata.
 	// If not set, the server will derive the URL from incoming request headers.
@@ -123,6 +128,11 @@ type ServerConfig struct {
 }
 
 func RunHTTPServer(cfg ServerConfig) error {
+	transport, err := resolveHTTPTransport(cfg)
+	if err != nil {
+		return err
+	}
+
 	// Create app context
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -222,7 +232,7 @@ func RunHTTPServer(cfg ServerConfig) error {
 	logger.Info("MCP endpoints registered", "baseURL", cfg.BaseURL)
 	logger.Info("OAuth protected resource endpoints registered", "baseURL", cfg.BaseURL)
 
-	addr := resolveListenAddress(cfg.ListenHost, cfg.Port)
+	addr := transport.address
 	httpSvr := http.Server{
 		Addr:              addr,
 		Handler:           r,
@@ -244,9 +254,15 @@ func RunHTTPServer(cfg ServerConfig) error {
 		dumpTranslations()
 	}
 
-	logger.Info("HTTP server listening", "addr", addr)
-	if err := httpSvr.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("HTTP server error: %w", err)
+	logger.Info("HTTP server listening", "addr", addr, "tls", transport.useTLS)
+	var serveErr error
+	if transport.useTLS {
+		serveErr = httpSvr.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+	} else {
+		serveErr = httpSvr.ListenAndServe()
+	}
+	if serveErr != nil && serveErr != http.ErrServerClosed {
+		return fmt.Errorf("HTTP server error: %w", serveErr)
 	}
 
 	logger.Info("server stopped gracefully")
@@ -270,12 +286,46 @@ func newOAuthConfig(cfg ServerConfig) *oauth.Config {
 	}
 }
 
+type httpTransportConfig struct {
+	address string
+	useTLS  bool
+}
+
+func resolveHTTPTransport(cfg ServerConfig) (httpTransportConfig, error) {
+	host := cfg.ListenHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	hasCert := cfg.TLSCertFile != ""
+	hasKey := cfg.TLSKeyFile != ""
+	if hasCert != hasKey {
+		return httpTransportConfig{}, fmt.Errorf("native TLS requires both certificate and private-key files")
+	}
+
+	transport := httpTransportConfig{
+		address: resolveListenAddress(host, cfg.Port),
+		useTLS:  hasCert,
+	}
+	if isLoopbackListenHost(host) {
+		return transport, nil
+	}
+	if !transport.useTLS {
+		return httpTransportConfig{}, fmt.Errorf("refusing non-loopback cleartext HTTP listener %q: configure native TLS", host)
+	}
+	return transport, nil
+}
+
+func isLoopbackListenHost(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // resolveListenAddress returns the address string passed to http.Server.
-// When host is empty the server binds to all interfaces on the given port;
-// otherwise host and port are joined into a single address.
+// Empty is fail-safe loopback, never a wildcard bind.
 func resolveListenAddress(host string, port int) string {
 	if host == "" {
-		return fmt.Sprintf(":%d", port)
+		host = "127.0.0.1"
 	}
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
