@@ -119,6 +119,74 @@ func TestWikiPublishBounds(t *testing.T) {
 	assert.Error(t, validateWikiPagePath(strings.Repeat("a", 253)+".md"))
 }
 
+func TestListWikiPagesBoundedRejectsResultAmplification(t *testing.T) {
+	checkout := t.TempDir()
+	for i := range wikiMaxPages {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(checkout, fmt.Sprintf("Page-%02d.md", i)),
+			[]byte("bounded"),
+			0o600,
+		))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(checkout, "Notes.txt"), []byte("ignored"), 0o600))
+
+	pages, err := listWikiPagesBounded(checkout)
+	require.NoError(t, err)
+	require.Len(t, pages, wikiMaxPages)
+
+	require.NoError(t, os.WriteFile(filepath.Join(checkout, "Overflow.md"), []byte("overflow"), 0o600))
+	pages, err = listWikiPagesBounded(checkout)
+	require.Error(t, err)
+	assert.Nil(t, pages)
+	assert.Contains(t, err.Error(), "more than 50 root Markdown pages")
+}
+
+func TestReadWikiPageRejectsOversizeBeforeReturningContent(t *testing.T) {
+	checkout := t.TempDir()
+	path := filepath.Join(checkout, "Large.md")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(int64(wikiMaxPageBytes)+1))
+	require.NoError(t, file.Close())
+
+	content, err := readWikiPageNoFollow(checkout, "Large.md")
+	require.Error(t, err)
+	assert.Nil(t, content)
+	assert.Contains(t, err.Error(), "exceeds the 1048576-byte tool limit")
+}
+
+
+func TestReadWikiPageRejectsPathIdentitySwapBetweenAdmissionAndOpen(t *testing.T) {
+	for _, replacementKind := range []string{"regular", "symlink"} {
+		t.Run(replacementKind, func(t *testing.T) {
+			root := t.TempDir()
+			checkout := filepath.Join(root, "checkout")
+			require.NoError(t, os.Mkdir(checkout, 0o700))
+
+			page := filepath.Join(checkout, "Home.md")
+			admitted := filepath.Join(checkout, "Admitted.md")
+			outside := filepath.Join(root, "outside.md")
+			require.NoError(t, os.WriteFile(page, []byte("admitted-safe"), 0o600))
+			require.NoError(t, os.WriteFile(outside, []byte("replacement-secret"), 0o600))
+
+			content, err := readWikiPageNoFollowWithOpen(checkout, "Home.md", func(path string) (*os.File, error) {
+				require.NoError(t, os.Rename(page, admitted))
+				if replacementKind == "symlink" {
+					if symlinkErr := os.Symlink(outside, page); symlinkErr != nil {
+						t.Skipf("symlink creation unavailable on this runner: %v", symlinkErr)
+					}
+				} else {
+					require.NoError(t, os.WriteFile(page, []byte("replacement-secret"), 0o600))
+				}
+				return os.Open(path)
+			})
+			require.Error(t, err)
+			assert.Nil(t, content)
+			assert.Contains(t, err.Error(), "changed identity")
+		})
+	}
+}
+
 func TestRequireWikiHeadRejectsConflict(t *testing.T) {
 	head := strings.Repeat("1", 40)
 	require.NoError(t, requireWikiHead(head, head))
