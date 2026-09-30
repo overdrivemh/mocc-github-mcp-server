@@ -201,6 +201,8 @@ var (
 				Host:                 viper.GetString("host"),
 				Port:                 viper.GetInt("port"),
 				ListenHost:           viper.GetString("listen-host"),
+				TLSCertFile:          viper.GetString("tls-cert-file"),
+				TLSKeyFile:           viper.GetString("tls-key-file"),
 				BaseURL:              viper.GetString("base-url"),
 				ResourcePath:         viper.GetString("base-path"),
 				AuthorizationServer:  viper.GetString("authorization-server"),
@@ -262,7 +264,9 @@ func init() {
 
 	// HTTP-specific flags
 	httpCmd.Flags().Int("port", 8082, "HTTP server port")
-	httpCmd.Flags().String("listen-host", "", "Host the HTTP server binds to (e.g. 127.0.0.1). Empty binds to all interfaces.")
+	httpCmd.Flags().String("listen-host", "127.0.0.1", "Host the HTTP server binds to. Cleartext HTTP is loopback-only; non-loopback listeners require --tls-cert-file and --tls-key-file.")
+	httpCmd.Flags().String("tls-cert-file", "", "PEM certificate file for native HTTPS. Required with --tls-key-file for any non-loopback listener.")
+	httpCmd.Flags().String("tls-key-file", "", "PEM private-key file for native HTTPS. Required with --tls-cert-file for any non-loopback listener.")
 	httpCmd.Flags().String("base-url", "", "Base URL where this server is publicly accessible (for OAuth resource metadata)")
 	httpCmd.Flags().String("base-path", "", "Externally visible base path for the HTTP server (for OAuth resource metadata)")
 	httpCmd.Flags().String("authorization-server", "", "Override the authorization server URL in OAuth resource metadata. Useful when deploying behind an OAuth proxy (e.g. for GHES). Env: GITHUB_AUTHORIZATION_SERVER")
@@ -292,6 +296,8 @@ func init() {
 	_ = viper.BindPFlag("app-private-key-path", stdioCmd.Flags().Lookup("app-private-key-path"))
 	_ = viper.BindPFlag("port", httpCmd.Flags().Lookup("port"))
 	_ = viper.BindPFlag("listen-host", httpCmd.Flags().Lookup("listen-host"))
+	_ = viper.BindPFlag("tls-cert-file", httpCmd.Flags().Lookup("tls-cert-file"))
+	_ = viper.BindPFlag("tls-key-file", httpCmd.Flags().Lookup("tls-key-file"))
 	_ = viper.BindPFlag("base-url", httpCmd.Flags().Lookup("base-url"))
 	_ = viper.BindPFlag("base-path", httpCmd.Flags().Lookup("base-path"))
 	_ = viper.BindPFlag("authorization-server", httpCmd.Flags().Lookup("authorization-server"))
