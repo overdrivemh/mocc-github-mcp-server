@@ -479,6 +479,81 @@ func TestCreateHTTPFeatureChecker(t *testing.T) {
 	}
 }
 
+
+func TestResolveHTTPTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       ServerConfig
+		wantAddr  string
+		wantTLS   bool
+		wantError string
+	}{
+		{
+			name:     "empty host is loopback cleartext",
+			cfg:      ServerConfig{Port: 8082},
+			wantAddr: "127.0.0.1:8082",
+		},
+		{
+			name:     "explicit IPv4 loopback may use cleartext",
+			cfg:      ServerConfig{ListenHost: "127.0.0.1", Port: 9090},
+			wantAddr: "127.0.0.1:9090",
+		},
+		{
+			name:     "explicit IPv6 loopback may use cleartext",
+			cfg:      ServerConfig{ListenHost: "::1", Port: 9090},
+			wantAddr: "[::1]:9090",
+		},
+		{
+			name:      "wildcard cleartext is rejected",
+			cfg:       ServerConfig{ListenHost: "0.0.0.0", Port: 8082},
+			wantError: "refusing non-loopback cleartext HTTP listener",
+		},
+		{
+			name: "proxy metadata cannot authorize remote cleartext",
+			cfg: ServerConfig{
+				ListenHost:        "0.0.0.0",
+				Port:              8082,
+				BaseURL:           "https://mcp.example.com",
+				TrustProxyHeaders: true,
+			},
+			wantError: "refusing non-loopback cleartext HTTP listener",
+		},
+		{
+			name: "remote native TLS is accepted",
+			cfg: ServerConfig{
+				ListenHost:  "0.0.0.0",
+				Port:        8443,
+				TLSCertFile: "/run/mocc/server.crt",
+				TLSKeyFile:  "/run/mocc/server.key",
+			},
+			wantAddr: "0.0.0.0:8443",
+			wantTLS:  true,
+		},
+		{
+			name: "partial TLS configuration is rejected",
+			cfg: ServerConfig{
+				ListenHost:  "127.0.0.1",
+				Port:        8443,
+				TLSCertFile: "/run/mocc/server.crt",
+			},
+			wantError: "native TLS requires both certificate and private-key files",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveHTTPTransport(tt.cfg)
+			if tt.wantError != "" {
+				require.ErrorContains(t, err, tt.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAddr, got.address)
+			assert.Equal(t, tt.wantTLS, got.useTLS)
+		})
+	}
+}
+
 func TestResolveListenAddress(t *testing.T) {
 	tests := []struct {
 		name string
@@ -487,10 +562,10 @@ func TestResolveListenAddress(t *testing.T) {
 		want string
 	}{
 		{
-			name: "empty host falls back to :port",
+			name: "empty host falls back to loopback",
 			host: "",
 			port: 8082,
-			want: ":8082",
+			want: "127.0.0.1:8082",
 		},
 		{
 			name: "ipv4 host is joined with port",
