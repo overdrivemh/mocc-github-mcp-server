@@ -509,6 +509,11 @@ func TestResolveHTTPTransport(t *testing.T) {
 			wantError: "refusing non-loopback cleartext HTTP listener",
 		},
 		{
+			name:      "localhost hostname does not authorize cleartext",
+			cfg:       ServerConfig{ListenHost: "localhost", Port: 8082},
+			wantError: "refusing non-loopback cleartext HTTP listener",
+		},
+		{
 			name: "proxy metadata cannot authorize remote cleartext",
 			cfg: ServerConfig{
 				ListenHost:        "0.0.0.0",
