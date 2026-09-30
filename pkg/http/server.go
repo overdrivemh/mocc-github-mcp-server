@@ -317,9 +317,6 @@ func resolveHTTPTransport(cfg ServerConfig) (httpTransportConfig, error) {
 }
 
 func isLoopbackListenHost(host string) bool {
-	if host == "localhost" {
-		return true
-	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }
