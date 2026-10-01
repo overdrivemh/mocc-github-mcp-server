@@ -788,6 +788,7 @@ func wikiGitProcessEnv(remoteURL, token string) ([]string, string, error) {
 		"git_ssl_no_verify=",
 		"ssl_cert_file=",
 		"ssl_cert_dir=",
+		"sslkeylogfile=",
 		"curl_ca_bundle=",
 		"git_proxy_command=",
 	}
