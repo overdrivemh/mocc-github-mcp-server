@@ -281,6 +281,7 @@ func TestWikiGitProcessEnvStripsAmbientTransportAuthority(t *testing.T) {
 		"GIT_SSL_NO_VERIFY": "1",
 		"SSL_CERT_FILE":     "/tmp/ambient-ssl-cert.pem",
 		"SSL_CERT_DIR":      "/tmp/ambient-ssl-certs",
+		"SsLkEyLoGfIlE":     "/tmp/ambient-tls-keys.log",
 		"CURL_CA_BUNDLE":    "/tmp/ambient-curl-ca.pem",
 		"GIT_PROXY_COMMAND": "/tmp/ambient-git-proxy",
 	}
