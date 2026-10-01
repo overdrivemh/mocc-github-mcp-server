@@ -776,6 +776,19 @@ func wikiGitProcessEnv(remoteURL, token string) ([]string, string, error) {
 		"GIT_CONFIG_KEY_",
 		"GIT_CONFIG_VALUE_",
 	}
+	blockedTransportNames := map[string]struct{}{
+		"ALL_PROXY":         {},
+		"CURL_CA_BUNDLE":    {},
+		"GIT_PROXY_COMMAND": {},
+		"GIT_SSL_CAINFO":    {},
+		"GIT_SSL_CAPATH":    {},
+		"GIT_SSL_NO_VERIFY": {},
+		"HTTP_PROXY":        {},
+		"HTTPS_PROXY":       {},
+		"NO_PROXY":          {},
+		"SSL_CERT_DIR":      {},
+		"SSL_CERT_FILE":     {},
+	}
 	env := make([]string, 0, len(os.Environ())+9)
 	for _, value := range os.Environ() {
 		blocked := false
@@ -784,6 +797,11 @@ func wikiGitProcessEnv(remoteURL, token string) ([]string, string, error) {
 				blocked = true
 				break
 			}
+		}
+		name, _, hasValue := strings.Cut(value, "=")
+		if hasValue {
+			_, blockedTransport := blockedTransportNames[strings.ToUpper(name)]
+			blocked = blocked || blockedTransport
 		}
 		if !blocked {
 			env = append(env, value)
