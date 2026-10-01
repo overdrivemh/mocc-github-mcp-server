@@ -762,25 +762,41 @@ func wikiGitProcessEnv(remoteURL, token string) ([]string, string, error) {
 		return nil, "", fmt.Errorf("invalid Wiki Git remote")
 	}
 
+	// Git carries a request-scoped Authorization header below, so the child must
+	// not inherit ambient credentials or ambient network/TLS trust. Compare
+	// case-insensitively because environment key casing is not a security
+	// boundary on every supported platform.
 	blockedPrefixes := []string{
-		"GITHUB_PERSONAL_ACCESS_TOKEN=",
-		"GITHUB_TOKEN=",
-		"GH_TOKEN=",
-		"GIT_ASKPASS=",
-		"SSH_ASKPASS=",
-		"GIT_TERMINAL_PROMPT=",
-		"GCM_INTERACTIVE=",
-		"GIT_CONFIG_GLOBAL=",
-		"GIT_CONFIG_NOSYSTEM=",
-		"GIT_CONFIG_COUNT=",
-		"GIT_CONFIG_KEY_",
-		"GIT_CONFIG_VALUE_",
+		"github_personal_access_token=",
+		"github_token=",
+		"gh_token=",
+		"git_askpass=",
+		"ssh_askpass=",
+		"git_terminal_prompt=",
+		"gcm_interactive=",
+		"git_config_global=",
+		"git_config_nosystem=",
+		"git_config_count=",
+		"git_config_key_",
+		"git_config_value_",
+		"http_proxy=",
+		"https_proxy=",
+		"all_proxy=",
+		"no_proxy=",
+		"git_ssl_cainfo=",
+		"git_ssl_capath=",
+		"git_ssl_no_verify=",
+		"ssl_cert_file=",
+		"ssl_cert_dir=",
+		"curl_ca_bundle=",
+		"git_proxy_command=",
 	}
 	env := make([]string, 0, len(os.Environ())+9)
 	for _, value := range os.Environ() {
+		lowerValue := strings.ToLower(value)
 		blocked := false
 		for _, prefix := range blockedPrefixes {
-			if strings.HasPrefix(value, prefix) {
+			if strings.HasPrefix(lowerValue, prefix) {
 				blocked = true
 				break
 			}
