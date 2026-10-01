@@ -270,6 +270,48 @@ func TestWikiGitProcessEnvStripsAmbientAuthAndConfig(t *testing.T) {
 	assert.Contains(t, joined, "GCM_INTERACTIVE=Never")
 }
 
+func TestWikiGitProcessEnvStripsAmbientTransportAuthority(t *testing.T) {
+	ambient := map[string]string{
+		"HTTP_PROXY":         "http://upper-http-proxy.invalid:8080",
+		"http_proxy":         "http://lower-http-proxy.invalid:8080",
+		"HTTPS_PROXY":        "http://upper-https-proxy.invalid:8080",
+		"https_proxy":        "http://lower-https-proxy.invalid:8080",
+		"ALL_PROXY":          "socks5://upper-all-proxy.invalid:1080",
+		"all_proxy":          "socks5://lower-all-proxy.invalid:1080",
+		"NO_PROXY":           "github.com",
+		"no_proxy":           "github.com",
+		"GIT_SSL_CAINFO":     "/tmp/ambient-ca.pem",
+		"GIT_SSL_CAPATH":     "/tmp/ambient-ca-dir",
+		"GIT_SSL_NO_VERIFY":  "1",
+		"SSL_CERT_FILE":      "/tmp/ambient-ssl-cert.pem",
+		"SSL_CERT_DIR":       "/tmp/ambient-ssl-cert-dir",
+		"CURL_CA_BUNDLE":     "/tmp/ambient-curl-ca.pem",
+		"GIT_PROXY_COMMAND":  "/tmp/ambient-git-proxy",
+	}
+	for name, value := range ambient {
+		t.Setenv(name, value)
+	}
+
+	for _, token := range []string{"", "request-token"} {
+		env, _, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", token)
+		require.NoError(t, err)
+
+		for _, value := range env {
+			name, _, ok := strings.Cut(value, "=")
+			require.True(t, ok)
+			_, forbidden := ambient[name]
+			assert.False(t, forbidden, "ambient transport authority %s survived into Git", name)
+			_, forbiddenFolded := map[string]struct{}{
+				"ALL_PROXY": {}, "CURL_CA_BUNDLE": {}, "GIT_PROXY_COMMAND": {},
+				"GIT_SSL_CAINFO": {}, "GIT_SSL_CAPATH": {}, "GIT_SSL_NO_VERIFY": {},
+				"HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {},
+				"SSL_CERT_DIR": {}, "SSL_CERT_FILE": {},
+			}[strings.ToUpper(name)]
+			assert.False(t, forbiddenFolded, "ambient transport authority %s survived into Git", name)
+		}
+	}
+}
+
 func TestWikiGitProcessEnvWithoutTokenDisablesAmbientCredentials(t *testing.T) {
 	env, authValue, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", "")
 	require.NoError(t, err)
