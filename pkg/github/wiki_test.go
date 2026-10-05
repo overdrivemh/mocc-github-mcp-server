@@ -270,6 +270,38 @@ func TestWikiGitProcessEnvStripsAmbientAuthAndConfig(t *testing.T) {
 	assert.Contains(t, joined, "GCM_INTERACTIVE=Never")
 }
 
+func TestWikiGitProcessEnvStripsAmbientTransportAuthority(t *testing.T) {
+	ambient := map[string]string{
+		"HTTPS_PROXY":       "http://ambient-proxy.invalid:8080",
+		"http_proxy":        "http://ambient-lower-proxy.invalid:8080",
+		"ALL_PROXY":         "socks5://ambient-proxy.invalid:1080",
+		"No_PrOxY":          "github.com",
+		"GIT_SSL_CAINFO":    "/tmp/ambient-git-ca.pem",
+		"GIT_SSL_CAPATH":    "/tmp/ambient-git-ca",
+		"GIT_SSL_NO_VERIFY": "1",
+		"SSL_CERT_FILE":     "/tmp/ambient-ssl-cert.pem",
+		"SSL_CERT_DIR":      "/tmp/ambient-ssl-certs",
+		"SsLkEyLoGfIlE":     "/tmp/ambient-tls-keys.log",
+		"CURL_CA_BUNDLE":    "/tmp/ambient-curl-ca.pem",
+		"GIT_PROXY_COMMAND": "/tmp/ambient-git-proxy",
+	}
+	for key, value := range ambient {
+		t.Setenv(key, value)
+	}
+
+	for _, token := range []string{"request-token", ""} {
+		t.Run(map[bool]string{true: "token", false: "tokenless"}[token != ""], func(t *testing.T) {
+			env, _, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", token)
+			require.NoError(t, err)
+			joined := strings.Join(env, "\n")
+			for key, value := range ambient {
+				assert.NotContains(t, strings.ToLower(joined), strings.ToLower(key)+"=")
+				assert.NotContains(t, joined, value)
+			}
+		})
+	}
+}
+
 func TestWikiGitProcessEnvWithoutTokenDisablesAmbientCredentials(t *testing.T) {
 	env, authValue, err := wikiGitProcessEnv("https://github.com/owner/repo.wiki.git", "")
 	require.NoError(t, err)
