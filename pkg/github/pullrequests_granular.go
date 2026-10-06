@@ -419,13 +419,17 @@ func GranularCreatePullRequestReview(t translations.TranslationHelperFunc) inven
 			if err != nil {
 				return utils.NewToolResultErrorFromErr("failed to get GitHub GraphQL client", err), nil, nil
 			}
+			restClient, err := deps.GetClient(ctx)
+			if err != nil {
+				return utils.NewToolResultErrorFromErr("failed to get GitHub REST client", err), nil, nil
+			}
 
 			var commitIDPtr *string
 			if commitID != "" {
 				commitIDPtr = &commitID
 			}
 
-			result, err := CreatePullRequestReview(ctx, gqlClient, PullRequestReviewWriteParams{
+			result, err := CreatePullRequestReviewSingleFlight(ctx, gqlClient, restClient, PullRequestReviewWriteParams{
 				Owner:      owner,
 				Repo:       repo,
 				PullNumber: int32(pullNumber), // #nosec G115 - PR numbers are always small positive integers
