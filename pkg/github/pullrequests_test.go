@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -3183,6 +3185,110 @@ func Test_createPullRequestSchemaClassification(t *testing.T) {
 				"(pkg/github/pullrequests.go) if the MCP App form can carry it on submit, otherwise add it to "+
 				"the knownNonForm allowlist in this test", prop)
 	}
+}
+
+func TestRRPAReviewSingleFlightTwoContendersExactlyOneWinner(t *testing.T) {
+	t.Parallel()
+
+	head := strings.Repeat("a", 40)
+	body := strings.Join([]string{
+		"RRPA TEST_ONLY_CHANGED_CAUSE PASS_BOUNDED",
+		"RR_WORKER=1",
+		"SUBJECT_PR=#42",
+		"EXACT_HEAD=" + head,
+		"SINGLE_FLIGHT_PROPERTY=focused-proof:backend-tests",
+		"SINGLE_FLIGHT_CAUSE_REF=run:37501095590",
+		"P0_SOURCE=0",
+		"P1_SOURCE=0",
+	}, "\n")
+	params := PullRequestReviewWriteParams{
+		Owner:      "owner",
+		Repo:       "repo",
+		PullNumber: 42,
+		Body:       body,
+		Event:      "COMMENT",
+		CommitID:   &head,
+	}
+
+	claim, err := rrpaReviewSingleFlightClaimFor(params)
+	require.NoError(t, err)
+	require.True(t, claim.Required)
+
+	var creates atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/owner/repo/pulls/42":
+			_, _ = fmt.Fprintf(w, `{"number":42,"state":"open","head":{"sha":%q}}`, head)
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/owner/repo/git/refs":
+			attempt := creates.Add(1)
+			if attempt == 1 {
+				w.WriteHeader(http.StatusCreated)
+				_, _ = fmt.Fprintf(w, `{"ref":%q,"object":{"sha":%q,"type":"commit"}}`, claim.Ref, head)
+				return
+			}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Reference already exists"}`))
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/repos/owner/repo/git/ref/"):
+			_, _ = fmt.Fprintf(w, `{"ref":%q,"object":{"sha":%q,"type":"commit"}}`, claim.Ref, head)
+		default:
+			http.Error(w, "unexpected request: "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := github.NewClient(server.Client())
+	baseURL, err := url.Parse(server.URL + "/")
+	require.NoError(t, err)
+	client.BaseURL = baseURL
+
+	start := make(chan struct{})
+	results := make(chan bool, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			won, gotClaim, claimErr := acquireRRPAReviewSingleFlight(context.Background(), client, params)
+			if claimErr == nil {
+				assert.Equal(t, claim.Ref, gotClaim.Ref)
+			}
+			results <- won
+			errs <- claimErr
+		}()
+	}
+	close(start)
+
+	wins := 0
+	for range 2 {
+		if <-results {
+			wins++
+		}
+		require.NoError(t, <-errs)
+	}
+	assert.Equal(t, 1, wins)
+	assert.Equal(t, int32(2), creates.Load())
+}
+
+func TestRRPAReviewSingleFlightRequiresImmutableKeyFields(t *testing.T) {
+	t.Parallel()
+
+	head := strings.Repeat("b", 40)
+	base := "RR_WORKER=2\nSUBJECT_PR=#42\nEXACT_HEAD=" + head + "\n"
+	params := PullRequestReviewWriteParams{
+		Owner: "owner", Repo: "repo", PullNumber: 42, Event: "COMMENT", CommitID: &head,
+		Body: base + "SINGLE_FLIGHT_PROPERTY=source-review\n",
+	}
+	_, err := rrpaReviewSingleFlightClaimFor(params)
+	require.EqualError(t, err, "RRPA_SINGLE_FLIGHT_CAUSE_REF_REQUIRED")
+
+	params.Body = base + "SINGLE_FLIGHT_CAUSE_REF=review:123\n"
+	_, err = rrpaReviewSingleFlightClaimFor(params)
+	require.EqualError(t, err, "RRPA_SINGLE_FLIGHT_PROPERTY_REQUIRED")
+
+	params.Body = "ordinary code review"
+	claim, err := rrpaReviewSingleFlightClaimFor(params)
+	require.NoError(t, err)
+	assert.False(t, claim.Required)
 }
 
 func TestCreateAndSubmitPullRequestReview(t *testing.T) {
