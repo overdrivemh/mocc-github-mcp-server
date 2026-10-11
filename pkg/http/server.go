@@ -233,11 +233,7 @@ func RunHTTPServer(cfg ServerConfig) error {
 	logger.Info("OAuth protected resource endpoints registered", "baseURL", cfg.BaseURL)
 
 	addr := transport.address
-	httpSvr := http.Server{
-		Addr:              addr,
-		Handler:           r,
-		ReadHeaderTimeout: 60 * time.Second,
-	}
+	httpSvr := newHTTPServer(addr, r)
 
 	go func() {
 		<-ctx.Done()
@@ -267,6 +263,21 @@ func RunHTTPServer(cfg ServerConfig) error {
 
 	logger.Info("server stopped gracefully")
 	return nil
+}
+
+
+// newHTTPServer caps complete request acquisition, not just headers.
+// MaxBytesReader restricts quantity, but cannot terminate a client that drips
+// an otherwise valid body indefinitely. ReadTimeout is a total deadline from
+// connection acceptance through request-body reading (including chunked/HTTP2
+// bodies). Do not set WriteTimeout: MCP streaming responses must remain viable.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 60 * time.Second,
+		ReadTimeout:       90 * time.Second,
+	}
 }
 
 func newHTTPRouter(registerMCPRoutes, registerOAuthRoutes func(chi.Router)) chi.Router {
