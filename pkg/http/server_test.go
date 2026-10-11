@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	ghcontext "github.com/github/github-mcp-server/pkg/context"
 	"github.com/github/github-mcp-server/pkg/github"
@@ -640,4 +641,15 @@ func TestHeaderAllowedFeatureFlagsMatchesAllowed(t *testing.T) {
 	assert.Equal(t, github.AllowedFeatureFlags, allowed,
 		"HeaderAllowedFeatureFlags() should match AllowedFeatureFlags")
 	assert.NotEmpty(t, allowed, "AllowedFeatureFlags should not be empty")
+}
+
+func TestHTTPServerCompleteRequestReadDeadline(t *testing.T) {
+	httpSvr := newHTTPServer("127.0.0.1:0", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	// HeaderTimeout alone cannot terminate a valid but indefinitely slow
+	// request body; the total request read deadline must remain nonzero.
+	require.Equal(t, 60*time.Second, httpSvr.ReadHeaderTimeout)
+	require.Equal(t, 90*time.Second, httpSvr.ReadTimeout)
+	require.Greater(t, httpSvr.ReadTimeout, httpSvr.ReadHeaderTimeout)
+	// A write deadline would break legitimate long-lived MCP responses.
+	require.Zero(t, httpSvr.WriteTimeout)
 }
